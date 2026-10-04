@@ -14,6 +14,20 @@ export const initSocket = (server) => {
   io.on('connection', (socket) => {
     console.log(`[Socket.IO] New client connected: ${socket.id}`);
 
+    const relayLocation = (data) => {
+      const latitude = Number(data?.latitude);
+      const longitude = Number(data?.longitude);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+      if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return;
+
+      socket.broadcast.emit('location_changed', {
+        ...data,
+        latitude,
+        longitude,
+        updatedAt: new Date().toISOString()
+      });
+    };
+
     // Join custom user or role room
     socket.on('join_room', (data) => {
       if (data?.role) {
@@ -27,10 +41,9 @@ export const initSocket = (server) => {
       }
     });
 
-    // Real-time location updates from Ambulance Drivers or Citizens
-    socket.on('update_location', (data) => {
-      socket.broadcast.emit('location_changed', data);
-    });
+    // Accept the documented legacy event as well as the browser's location-update event.
+    socket.on('location-update', relayLocation);
+    socket.on('update_location', relayLocation);
 
     // Live SOS trigger event
     socket.on('trigger_sos', (sosData) => {

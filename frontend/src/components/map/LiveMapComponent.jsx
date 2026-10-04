@@ -1,4 +1,6 @@
 import React, { useEffect, useRef } from 'react';
+import * as L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 
 const LiveMapComponent = ({
   center = [12.9716, 77.5946],
@@ -9,47 +11,55 @@ const LiveMapComponent = ({
 }) => {
   const mapRef = useRef(null);
   const leafletInstance = useRef(null);
+  const hospitalLayer = useRef(null);
+  const ambulanceLayer = useRef(null);
 
   useEffect(() => {
-    // Dynamically load Leaflet JS script if window.L is not available
-    if (window.L && mapRef.current && !leafletInstance.current) {
-      try {
-        const map = window.L.map(mapRef.current).setView(center, zoom);
+    if (!mapRef.current || leafletInstance.current) return undefined;
 
-        // Dark matter map tiles for sleek high-tech emergency visual aesthetics
-        window.L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-          attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; OpenStreetMap',
-          subdomains: 'abcd',
-          maxZoom: 19
-        }).addTo(map);
+    const map = L.map(mapRef.current).setView(center, zoom);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19
+    }).addTo(map);
 
-        leafletInstance.current = map;
-      } catch (err) {
-        console.warn('[Map Component] Leaflet initialization:', err.message);
-      }
-    }
+    leafletInstance.current = map;
+    hospitalLayer.current = L.layerGroup().addTo(map);
+    ambulanceLayer.current = L.layerGroup().addTo(map);
+
+    return () => {
+      map.remove();
+      leafletInstance.current = null;
+      hospitalLayer.current = null;
+      ambulanceLayer.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    leafletInstance.current?.setView(center, zoom);
   }, [center, zoom]);
 
   useEffect(() => {
-    if (leafletInstance.current && window.L) {
+    if (leafletInstance.current) {
       const map = leafletInstance.current;
 
-      // Add Hospital markers
+      hospitalLayer.current?.clearLayers();
+      ambulanceLayer.current?.clearLayers();
+
       hospitals.forEach((h) => {
         if (h.location?.coordinates) {
           const [lng, lat] = h.location.coordinates;
-          window.L.marker([lat, lng])
-            .addTo(map)
+          L.marker([lat, lng])
+            .addTo(hospitalLayer.current || map)
             .bindPopup(`<b>🏥 ${h.name}</b><br/>Available Beds: ${h.availableBeds}/${h.totalBeds}`);
         }
       });
 
-      // Add Ambulance markers
       ambulances.forEach((a) => {
         if (a.location?.coordinates) {
           const [lng, lat] = a.location.coordinates;
-          window.L.marker([lat, lng])
-            .addTo(map)
+          L.marker([lat, lng])
+            .addTo(ambulanceLayer.current || map)
             .bindPopup(`<b>🚑 ${a.vehicleNumber}</b> (${a.driverName})<br/>Status: ${a.status}`);
         }
       });

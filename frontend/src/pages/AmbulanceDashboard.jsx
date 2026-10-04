@@ -1,8 +1,14 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Ambulance, MapPin, Navigation, Phone, CheckCircle, Radio } from 'lucide-react';
+import { useSocket } from '../context/SocketContext';
 
 const AmbulanceDashboard = () => {
   const [unitStatus, setUnitStatus] = useState('Available');
+  const [currentLocation, setCurrentLocation] = useState(null);
+  const [locationError, setLocationError] = useState('');
+  const [socketConnected, setSocketConnected] = useState(false);
+  const latestLocation = useRef(null);
+  const { socket } = useSocket();
   const [currentDispatch, setCurrentDispatch] = useState({
     id: 'SOS-9821',
     patientName: 'Jane Doe',
@@ -16,6 +22,60 @@ const AmbulanceDashboard = () => {
   const toggleStatus = (status) => {
     setUnitStatus(status);
   };
+
+  useEffect(() => {
+    if (!socket || unitStatus === 'Offline') return undefined;
+    if (!navigator.geolocation) {
+      setLocationError('Geolocation is not supported by this browser.');
+      return undefined;
+    }
+
+    const publishLocation = (location) => {
+      if (socket.connected && location) {
+        socket.emit('location-update', {
+          vehicleNumber: 'AMB-101',
+          driverName: 'Alex Miller',
+          latitude: location.latitude,
+          longitude: location.longitude,
+          speed: location.speed,
+          heading: location.heading,
+          timestamp: location.timestamp
+        });
+      }
+    };
+
+    const handleConnect = () => {
+      setSocketConnected(true);
+      publishLocation(latestLocation.current);
+    };
+    const handleDisconnect = () => setSocketConnected(false);
+    setSocketConnected(socket.connected);
+    socket.on('connect', handleConnect);
+    socket.on('disconnect', handleDisconnect);
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        const location = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          speed: position.coords.speed,
+          heading: position.coords.heading,
+          timestamp: position.timestamp
+        };
+        latestLocation.current = location;
+        setCurrentLocation(location);
+        setLocationError('');
+        publishLocation(location);
+      },
+      (error) => setLocationError(error.message || 'Unable to read your location.'),
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
+    );
+
+    return () => {
+      navigator.geolocation.clearWatch(watchId);
+      socket.off('connect', handleConnect);
+      socket.off('disconnect', handleDisconnect);
+    };
+  }, [socket, unitStatus]);
 
   return (
     <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8 space-y-8">
@@ -96,14 +156,23 @@ const AmbulanceDashboard = () => {
           <h3 className="text-base font-bold font-heading text-white">Live Telemetry</h3>
           <div className="p-4 bg-gray-900 rounded-2xl border border-gray-800 text-xs space-y-2">
             <div className="flex justify-between text-gray-400 font-mono">
-              <span>Speed:</span> <b className="text-white">64 km/h</b>
+              <span>Speed:</span> <b className="text-white">{currentLocation?.speed == null ? '--' : `${Math.round(currentLocation.speed * 3.6)} km/h`}</b>
             </div>
             <div className="flex justify-between text-gray-400 font-mono">
               <span>ETA to Scene:</span> <b className="text-amber-400">3 mins</b>
             </div>
             <div className="flex justify-between text-gray-400 font-mono">
-              <span>Socket Status:</span> <b className="text-emerald-400">Broadcasting</b>
+              <span>GPS Status:</span>
+              <b className={locationError ? 'text-red-400' : currentLocation && socketConnected ? 'text-emerald-400' : 'text-amber-400'}>
+                {unitStatus === 'Offline' ? 'Offline' : locationError ? 'Unavailable' : currentLocation && socketConnected ? 'Broadcasting' : currentLocation ? 'Reconnecting' : 'Waiting'}
+              </b>
             </div>
+            {currentLocation && (
+              <p className="text-gray-500 font-mono">
+                {currentLocation.latitude.toFixed(5)}, {currentLocation.longitude.toFixed(5)}
+              </p>
+            )}
+            {locationError && <p className="text-red-300">{locationError}</p>}
           </div>
         </div>
       </div>
